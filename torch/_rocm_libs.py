@@ -72,19 +72,17 @@ def _validate_rocm_so_files() -> None:
     for list_name, files in (
         ("ROCM_SO_FILES", ROCM_SO_FILES),
         ("ROCM_SO_FILES_BUNDLE_ONLY", ROCM_SO_FILES_BUNDLE_ONLY),
-        ("ROCM_SO_FILES_ALL", ROCM_SO_FILES_ALL),
     ):
         for name in files:
             if not isinstance(name, str):
-                raise AssertionError(f"{list_name} contains non-string entry: {name!r}")
+                raise AssertionError(f"{list_name} contains non-string: {name!r}")
             if "/" in name or "\\" in name:
-                raise AssertionError(f"{list_name} contains non-basename entry: {name!r}")
+                raise AssertionError(f"{list_name} contains non-basename: {name!r}")
             if not name.startswith("lib") or ".so" not in name:
-                raise AssertionError(f"{list_name} contains non-shared-lib entry: {name!r}")
-            if name in seen and list_name != "ROCM_SO_FILES_ALL":
+                raise AssertionError(f"{list_name} contains non-library: {name!r}")
+            if name in seen:
                 raise AssertionError(f"duplicate ROCm shared library entry: {name!r}")
-            if list_name != "ROCM_SO_FILES_ALL":
-                seen.add(name)
+            seen.add(name)
 
     if ROCM_SO_FILES_ALL != ROCM_SO_FILES + ROCM_SO_FILES_BUNDLE_ONLY:
         raise AssertionError(
