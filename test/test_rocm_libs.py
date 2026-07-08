@@ -20,11 +20,20 @@ def load_module_from_path(module_name: str, path: Path):
 
 
 class TestRocmLibs(TestCase):
+    def load_rocm_libs_with_source_replacement(self, old: str, new: str):
+        source = (REPO_ROOT / "torch" / "_rocm_libs.py").read_text()
+        self.assertIn(old, source)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "_rocm_libs.py"
+            path.write_text(source.replace(old, new, 1))
+            return load_module_from_path("test_rocm_libs_bad", path)
+
     def test_rocm_so_files_are_valid_basenames(self):
         rocm_libs = load_module_from_path(
             "test_rocm_libs_source", REPO_ROOT / "torch" / "_rocm_libs.py"
         )
 
+        rocm_libs._validate_rocm_so_files()
         self.assertEqual(
             rocm_libs.ROCM_SO_FILES_ALL,
             rocm_libs.ROCM_SO_FILES + rocm_libs.ROCM_SO_FILES_BUNDLE_ONLY,
@@ -38,6 +47,27 @@ class TestRocmLibs(TestCase):
             self.assertEqual(Path(name).name, name)
             self.assertTrue(name.startswith("lib"), name)
             self.assertIn(".so", name)
+
+    def test_rocm_so_files_validation_rejects_bad_entries(self):
+        bad_entries = (
+            ("\"libamd_comgr.so\"", "123"),
+            ("\"libamd_comgr.so\"", "\"rocm/libamd_comgr.so\""),
+            ("\"libamd_comgr.so\"", "\"rocm\\\\libamd_comgr.so\""),
+            ("\"libamd_comgr.so\"", "\"amd_comgr\""),
+            ("\"libmagma.so\"", "\"libamd_comgr.so\""),
+        )
+
+        for old, new in bad_entries:
+            with self.subTest(new=new):
+                with self.assertRaises(AssertionError):
+                    self.load_rocm_libs_with_source_replacement(old, new)
+
+    def test_rocm_so_files_validation_rejects_all_list_drift(self):
+        with self.assertRaises(AssertionError):
+            self.load_rocm_libs_with_source_replacement(
+                "ROCM_SO_FILES_ALL: list[str] = ROCM_SO_FILES + ROCM_SO_FILES_BUNDLE_ONLY",
+                "ROCM_SO_FILES_ALL: list[str] = ROCM_SO_FILES",
+            )
 
     def test_repair_wheel_loader_prefers_unpacked_torch_copy(self):
         repair_wheel = load_module_from_path(
