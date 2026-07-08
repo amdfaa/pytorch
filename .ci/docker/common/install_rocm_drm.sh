@@ -12,7 +12,7 @@ case "$ID" in
     apt-get install -y libpciaccess-dev pkg-config
     apt-get clean
     ;;
-  centos)
+  centos|rhel|almalinux|rocky)
     yum install -y libpciaccess-devel pkgconfig
     ;;
   *)

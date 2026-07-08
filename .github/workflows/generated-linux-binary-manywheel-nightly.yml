@@ -409,7 +409,7 @@ jobs:
       DESIRED_CUDA: rocm6.1
       GPU_ARCH_VERSION: 6.1
       GPU_ARCH_TYPE: rocm
-      DOCKER_IMAGE: pytorch/manylinux-builder:rocm6.1-main
+      DOCKER_IMAGE: pytorch/manylinux2_28-builder:rocm6.1-main
       use_split_build: False
       DESIRED_PYTHON: "3.9"
       runner_prefix: "${{ needs.get-label-type.outputs.label-type }}"
@@ -434,7 +434,7 @@ jobs:
       GPU_ARCH_VERSION: 6.1
       GPU_ARCH_TYPE: rocm
       SKIP_ALL_TESTS: 1
-      DOCKER_IMAGE: pytorch/manylinux-builder:rocm6.1-main
+      DOCKER_IMAGE: pytorch/manylinux2_28-builder:rocm6.1-main
       use_split_build: False
       DESIRED_PYTHON: "3.9"
     steps:
@@ -476,7 +476,7 @@ jobs:
       - name: Pull Docker image
         uses: pytorch/test-infra/.github/actions/pull-docker-image@main
         with:
-          docker-image: pytorch/manylinux-builder:rocm6.1-main
+          docker-image: pytorch/manylinux2_28-builder:rocm6.1-main
       - name: Test Pytorch binary
         uses: ./pytorch/.github/actions/test-pytorch-binary
       - name: Teardown ROCm
@@ -496,7 +496,7 @@ jobs:
       DESIRED_CUDA: rocm6.1
       GPU_ARCH_VERSION: 6.1
       GPU_ARCH_TYPE: rocm
-      DOCKER_IMAGE: pytorch/manylinux-builder:rocm6.1-main
+      DOCKER_IMAGE: pytorch/manylinux2_28-builder:rocm6.1-main
       use_split_build: False
       DESIRED_PYTHON: "3.9"
       build_name: manywheel-py3_9-rocm6_1
@@ -519,7 +519,7 @@ jobs:
       DESIRED_CUDA: rocm6.2
       GPU_ARCH_VERSION: 6.2
       GPU_ARCH_TYPE: rocm
-      DOCKER_IMAGE: pytorch/manylinux-builder:rocm6.2-main
+      DOCKER_IMAGE: pytorch/manylinux2_28-builder:rocm6.2-main
       use_split_build: False
       DESIRED_PYTHON: "3.9"
       runner_prefix: "${{ needs.get-label-type.outputs.label-type }}"
@@ -544,7 +544,7 @@ jobs:
       GPU_ARCH_VERSION: 6.2
       GPU_ARCH_TYPE: rocm
       SKIP_ALL_TESTS: 1
-      DOCKER_IMAGE: pytorch/manylinux-builder:rocm6.2-main
+      DOCKER_IMAGE: pytorch/manylinux2_28-builder:rocm6.2-main
       use_split_build: False
       DESIRED_PYTHON: "3.9"
     steps:
@@ -586,7 +586,7 @@ jobs:
       - name: Pull Docker image
         uses: pytorch/test-infra/.github/actions/pull-docker-image@main
         with:
-          docker-image: pytorch/manylinux-builder:rocm6.2-main
+          docker-image: pytorch/manylinux2_28-builder:rocm6.2-main
       - name: Test Pytorch binary
         uses: ./pytorch/.github/actions/test-pytorch-binary
       - name: Teardown ROCm
@@ -606,7 +606,7 @@ jobs:
       DESIRED_CUDA: rocm6.2
       GPU_ARCH_VERSION: 6.2
       GPU_ARCH_TYPE: rocm
-      DOCKER_IMAGE: pytorch/manylinux-builder:rocm6.2-main
+      DOCKER_IMAGE: pytorch/manylinux2_28-builder:rocm6.2-main
       use_split_build: False
       DESIRED_PYTHON: "3.9"
       build_name: manywheel-py3_9-rocm6_2
@@ -1095,7 +1095,7 @@ jobs:
       DESIRED_CUDA: rocm6.1
       GPU_ARCH_VERSION: 6.1
       GPU_ARCH_TYPE: rocm
-      DOCKER_IMAGE: pytorch/manylinux-builder:rocm6.1-main
+      DOCKER_IMAGE: pytorch/manylinux2_28-builder:rocm6.1-main
       use_split_build: False
       DESIRED_PYTHON: "3.10"
       runner_prefix: "${{ needs.get-label-type.outputs.label-type }}"
@@ -1120,7 +1120,7 @@ jobs:
       GPU_ARCH_VERSION: 6.1
       GPU_ARCH_TYPE: rocm
       SKIP_ALL_TESTS: 1
-      DOCKER_IMAGE: pytorch/manylinux-builder:rocm6.1-main
+      DOCKER_IMAGE: pytorch/manylinux2_28-builder:rocm6.1-main
       use_split_build: False
       DESIRED_PYTHON: "3.10"
     steps:
@@ -1162,7 +1162,7 @@ jobs:
       - name: Pull Docker image
         uses: pytorch/test-infra/.github/actions/pull-docker-image@main
         with:
-          docker-image: pytorch/manylinux-builder:rocm6.1-main
+          docker-image: pytorch/manylinux2_28-builder:rocm6.1-main
       - name: Test Pytorch binary
         uses: ./pytorch/.github/actions/test-pytorch-binary
       - name: Teardown ROCm
@@ -1182,7 +1182,7 @@ jobs:
       DESIRED_CUDA: rocm6.1
       GPU_ARCH_VERSION: 6.1
       GPU_ARCH_TYPE: rocm
-      DOCKER_IMAGE: pytorch/manylinux-builder:rocm6.1-main
+      DOCKER_IMAGE: pytorch/manylinux2_28-builder:rocm6.1-main
       use_split_build: False
       DESIRED_PYTHON: "3.10"
       build_name: manywheel-py3_10-rocm6_1
@@ -1205,7 +1205,7 @@ jobs:
       DESIRED_CUDA: rocm6.2
       GPU_ARCH_VERSION: 6.2
       GPU_ARCH_TYPE: rocm
-      DOCKER_IMAGE: pytorch/manylinux-builder:rocm6.2-main
+      DOCKER_IMAGE: pytorch/manylinux2_28-builder:rocm6.2-main
       use_split_build: False
       DESIRED_PYTHON: "3.10"
       runner_prefix: "${{ needs.get-label-type.outputs.label-type }}"
@@ -1230,7 +1230,7 @@ jobs:
       GPU_ARCH_VERSION: 6.2
       GPU_ARCH_TYPE: rocm
       SKIP_ALL_TESTS: 1
-      DOCKER_IMAGE: pytorch/manylinux-builder:rocm6.2-main
+      DOCKER_IMAGE: pytorch/manylinux2_28-builder:rocm6.2-main
       use_split_build: False
       DESIRED_PYTHON: "3.10"
     steps:
@@ -1272,7 +1272,7 @@ jobs:
       - name: Pull Docker image
         uses: pytorch/test-infra/.github/actions/pull-docker-image@main
         with:
-          docker-image: pytorch/manylinux-builder:rocm6.2-main
+          docker-image: pytorch/manylinux2_28-builder:rocm6.2-main
       - name: Test Pytorch binary
         uses: ./pytorch/.github/actions/test-pytorch-binary
       - name: Teardown ROCm
@@ -1292,7 +1292,7 @@ jobs:
       DESIRED_CUDA: rocm6.2
       GPU_ARCH_VERSION: 6.2
       GPU_ARCH_TYPE: rocm
-      DOCKER_IMAGE: pytorch/manylinux-builder:rocm6.2-main
+      DOCKER_IMAGE: pytorch/manylinux2_28-builder:rocm6.2-main
       use_split_build: False
       DESIRED_PYTHON: "3.10"
       build_name: manywheel-py3_10-rocm6_2
@@ -1851,7 +1851,7 @@ jobs:
       DESIRED_CUDA: rocm6.1
       GPU_ARCH_VERSION: 6.1
       GPU_ARCH_TYPE: rocm
-      DOCKER_IMAGE: pytorch/manylinux-builder:rocm6.1-main
+      DOCKER_IMAGE: pytorch/manylinux2_28-builder:rocm6.1-main
       use_split_build: False
       DESIRED_PYTHON: "3.11"
       runner_prefix: "${{ needs.get-label-type.outputs.label-type }}"
@@ -1876,7 +1876,7 @@ jobs:
       GPU_ARCH_VERSION: 6.1
       GPU_ARCH_TYPE: rocm
       SKIP_ALL_TESTS: 1
-      DOCKER_IMAGE: pytorch/manylinux-builder:rocm6.1-main
+      DOCKER_IMAGE: pytorch/manylinux2_28-builder:rocm6.1-main
       use_split_build: False
       DESIRED_PYTHON: "3.11"
     steps:
@@ -1918,7 +1918,7 @@ jobs:
       - name: Pull Docker image
         uses: pytorch/test-infra/.github/actions/pull-docker-image@main
         with:
-          docker-image: pytorch/manylinux-builder:rocm6.1-main
+          docker-image: pytorch/manylinux2_28-builder:rocm6.1-main
       - name: Test Pytorch binary
         uses: ./pytorch/.github/actions/test-pytorch-binary
       - name: Teardown ROCm
@@ -1938,7 +1938,7 @@ jobs:
       DESIRED_CUDA: rocm6.1
       GPU_ARCH_VERSION: 6.1
       GPU_ARCH_TYPE: rocm
-      DOCKER_IMAGE: pytorch/manylinux-builder:rocm6.1-main
+      DOCKER_IMAGE: pytorch/manylinux2_28-builder:rocm6.1-main
       use_split_build: False
       DESIRED_PYTHON: "3.11"
       build_name: manywheel-py3_11-rocm6_1
@@ -1961,7 +1961,7 @@ jobs:
       DESIRED_CUDA: rocm6.2
       GPU_ARCH_VERSION: 6.2
       GPU_ARCH_TYPE: rocm
-      DOCKER_IMAGE: pytorch/manylinux-builder:rocm6.2-main
+      DOCKER_IMAGE: pytorch/manylinux2_28-builder:rocm6.2-main
       use_split_build: False
       DESIRED_PYTHON: "3.11"
       runner_prefix: "${{ needs.get-label-type.outputs.label-type }}"
@@ -1986,7 +1986,7 @@ jobs:
       GPU_ARCH_VERSION: 6.2
       GPU_ARCH_TYPE: rocm
       SKIP_ALL_TESTS: 1
-      DOCKER_IMAGE: pytorch/manylinux-builder:rocm6.2-main
+      DOCKER_IMAGE: pytorch/manylinux2_28-builder:rocm6.2-main
       use_split_build: False
       DESIRED_PYTHON: "3.11"
     steps:
@@ -2028,7 +2028,7 @@ jobs:
       - name: Pull Docker image
         uses: pytorch/test-infra/.github/actions/pull-docker-image@main
         with:
-          docker-image: pytorch/manylinux-builder:rocm6.2-main
+          docker-image: pytorch/manylinux2_28-builder:rocm6.2-main
       - name: Test Pytorch binary
         uses: ./pytorch/.github/actions/test-pytorch-binary
       - name: Teardown ROCm
@@ -2048,7 +2048,7 @@ jobs:
       DESIRED_CUDA: rocm6.2
       GPU_ARCH_VERSION: 6.2
       GPU_ARCH_TYPE: rocm
-      DOCKER_IMAGE: pytorch/manylinux-builder:rocm6.2-main
+      DOCKER_IMAGE: pytorch/manylinux2_28-builder:rocm6.2-main
       use_split_build: False
       DESIRED_PYTHON: "3.11"
       build_name: manywheel-py3_11-rocm6_2
@@ -2537,7 +2537,7 @@ jobs:
       DESIRED_CUDA: rocm6.1
       GPU_ARCH_VERSION: 6.1
       GPU_ARCH_TYPE: rocm
-      DOCKER_IMAGE: pytorch/manylinux-builder:rocm6.1-main
+      DOCKER_IMAGE: pytorch/manylinux2_28-builder:rocm6.1-main
       use_split_build: False
       DESIRED_PYTHON: "3.12"
       runner_prefix: "${{ needs.get-label-type.outputs.label-type }}"
@@ -2562,7 +2562,7 @@ jobs:
       GPU_ARCH_VERSION: 6.1
       GPU_ARCH_TYPE: rocm
       SKIP_ALL_TESTS: 1
-      DOCKER_IMAGE: pytorch/manylinux-builder:rocm6.1-main
+      DOCKER_IMAGE: pytorch/manylinux2_28-builder:rocm6.1-main
       use_split_build: False
       DESIRED_PYTHON: "3.12"
     steps:
@@ -2604,7 +2604,7 @@ jobs:
       - name: Pull Docker image
         uses: pytorch/test-infra/.github/actions/pull-docker-image@main
         with:
-          docker-image: pytorch/manylinux-builder:rocm6.1-main
+          docker-image: pytorch/manylinux2_28-builder:rocm6.1-main
       - name: Test Pytorch binary
         uses: ./pytorch/.github/actions/test-pytorch-binary
       - name: Teardown ROCm
@@ -2624,7 +2624,7 @@ jobs:
       DESIRED_CUDA: rocm6.1
       GPU_ARCH_VERSION: 6.1
       GPU_ARCH_TYPE: rocm
-      DOCKER_IMAGE: pytorch/manylinux-builder:rocm6.1-main
+      DOCKER_IMAGE: pytorch/manylinux2_28-builder:rocm6.1-main
       use_split_build: False
       DESIRED_PYTHON: "3.12"
       build_name: manywheel-py3_12-rocm6_1
@@ -2647,7 +2647,7 @@ jobs:
       DESIRED_CUDA: rocm6.2
       GPU_ARCH_VERSION: 6.2
       GPU_ARCH_TYPE: rocm
-      DOCKER_IMAGE: pytorch/manylinux-builder:rocm6.2-main
+      DOCKER_IMAGE: pytorch/manylinux2_28-builder:rocm6.2-main
       use_split_build: False
       DESIRED_PYTHON: "3.12"
       runner_prefix: "${{ needs.get-label-type.outputs.label-type }}"
@@ -2672,7 +2672,7 @@ jobs:
       GPU_ARCH_VERSION: 6.2
       GPU_ARCH_TYPE: rocm
       SKIP_ALL_TESTS: 1
-      DOCKER_IMAGE: pytorch/manylinux-builder:rocm6.2-main
+      DOCKER_IMAGE: pytorch/manylinux2_28-builder:rocm6.2-main
       use_split_build: False
       DESIRED_PYTHON: "3.12"
     steps:
@@ -2714,7 +2714,7 @@ jobs:
       - name: Pull Docker image
         uses: pytorch/test-infra/.github/actions/pull-docker-image@main
         with:
-          docker-image: pytorch/manylinux-builder:rocm6.2-main
+          docker-image: pytorch/manylinux2_28-builder:rocm6.2-main
       - name: Test Pytorch binary
         uses: ./pytorch/.github/actions/test-pytorch-binary
       - name: Teardown ROCm
@@ -2734,7 +2734,7 @@ jobs:
       DESIRED_CUDA: rocm6.2
       GPU_ARCH_VERSION: 6.2
       GPU_ARCH_TYPE: rocm
-      DOCKER_IMAGE: pytorch/manylinux-builder:rocm6.2-main
+      DOCKER_IMAGE: pytorch/manylinux2_28-builder:rocm6.2-main
       use_split_build: False
       DESIRED_PYTHON: "3.12"
       build_name: manywheel-py3_12-rocm6_2

@@ -143,18 +143,33 @@ RUN ln -sf /usr/local/cuda-${BASE_CUDA_VERSION} /usr/local/cuda
 ENV PATH=/usr/local/cuda/bin:$PATH
 
 
-FROM common as rocm_final
+FROM cpu_final as rocm_final
 ARG ROCM_VERSION=3.7
+ARG PYTORCH_ROCM_ARCH
+ENV PYTORCH_ROCM_ARCH ${PYTORCH_ROCM_ARCH}
+# Adding ROCM_PATH env var so that LoadHip.cmake (even with logic updated for ROCm6.0)
+# find HIP works for ROCm5.7. Not needed for ROCm6.0 and above.
+# Remove below when ROCm5.7 is not in support matrix anymore.
+ENV ROCM_PATH /opt/rocm
+ENV MKLROOT /opt/intel
 # Install ROCm
 ADD ./common/install_rocm.sh install_rocm.sh
 RUN bash ./install_rocm.sh ${ROCM_VERSION} && rm install_rocm.sh
-# cmake is already installed inside the rocm base image, but both 2 and 3 exist
-# cmake3 is needed for the later MIOpen custom build, so that step is last.
-RUN yum install -y cmake3 && \
-    rm -f /usr/bin/cmake && \
-    ln -s /usr/bin/cmake3 /usr/bin/cmake
+ADD ./common/install_rocm_drm.sh install_rocm_drm.sh
+RUN bash ./install_rocm_drm.sh && rm install_rocm_drm.sh
+# cmake3 is needed for the MIOpen build.
+RUN ln -sf /usr/local/bin/cmake /usr/bin/cmake3
+ADD ./common/install_rocm_magma.sh install_rocm_magma.sh
+RUN bash ./install_rocm_magma.sh && rm install_rocm_magma.sh
 ADD ./common/install_miopen.sh install_miopen.sh
 RUN bash ./install_miopen.sh ${ROCM_VERSION} && rm install_miopen.sh
+
+# Install AOTriton
+COPY ./common/common_utils.sh common_utils.sh
+COPY ./aotriton_version.txt aotriton_version.txt
+COPY ./common/install_aotriton.sh install_aotriton.sh
+RUN bash ./install_aotriton.sh /opt/rocm && rm install_aotriton.sh aotriton_version.txt
+ENV AOTRITON_INSTALLED_PREFIX /opt/rocm/aotriton
 
 FROM cpu_final as xpu_final
 # XPU CD use rolling driver

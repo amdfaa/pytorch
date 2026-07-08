@@ -68,34 +68,55 @@ install_ubuntu() {
 }
 
 install_centos() {
+  . /etc/os-release
 
   yum update -y
-  yum install -y kmod
-  yum install -y wget
-  yum install -y openblas-devel
+  yum install -y kmod wget openblas-devel sqlite
 
-  yum install -y epel-release
-  yum install -y dkms kernel-headers-`uname -r` kernel-devel-`uname -r`
+  if [[ "${ID}" == "centos" ]]; then
+    yum install -y epel-release
+    yum install -y dkms kernel-headers-`uname -r` kernel-devel-`uname -r`
+  else
+    yum install -y epel-release dnf-plugins-core
+  fi
 
   # Add amdgpu repository
   local amdgpu_baseurl
-  if [[ $OS_VERSION == 9 ]]; then
+  local rocm_baseurl
+  if [[ "${ID}" == "centos" ]]; then
+    amdgpu_baseurl="https://repo.radeon.com/amdgpu/${ROCM_VERSION}/rhel/7.9/main/x86_64"
+    rocm_baseurl="http://repo.radeon.com/rocm/yum/${ROCM_VERSION}"
+  elif [[ "${ID}" == "rhel" || "${ID}" == "almalinux" || "${ID}" == "rocky" ]]; then
+    local rhel_major="${VERSION_ID%%.*}"
+    if [[ "${rhel_major}" == "8" ]]; then
+      # ROCm publishes RHEL 8 userspace packages against 8.8; AlmaLinux 8 is
+      # used by the manylinux_2_28 image and is compatible with this repo.
+      amdgpu_baseurl="https://repo.radeon.com/amdgpu/${ROCM_VERSION}/rhel/8.8/main/x86_64"
+      rocm_baseurl="https://repo.radeon.com/rocm/rhel8/${ROCM_VERSION}/main"
+    elif [[ "${rhel_major}" == "9" ]]; then
       amdgpu_baseurl="https://repo.radeon.com/amdgpu/${ROCM_VERSION}/rhel/9.0/main/x86_64"
+      rocm_baseurl="https://repo.radeon.com/rocm/rhel9/${ROCM_VERSION}/main"
+    else
+      echo "Unsupported RHEL-like version ${VERSION_ID} for ROCm"
+      exit 1
+    fi
   else
-      amdgpu_baseurl="https://repo.radeon.com/amdgpu/${ROCM_VERSION}/rhel/7.9/main/x86_64"
+    echo "Unsupported RPM distribution ${ID} for ROCm"
+    exit 1
   fi
   echo "[AMDGPU]" > /etc/yum.repos.d/amdgpu.repo
   echo "name=AMDGPU" >> /etc/yum.repos.d/amdgpu.repo
   echo "baseurl=${amdgpu_baseurl}" >> /etc/yum.repos.d/amdgpu.repo
   echo "enabled=1" >> /etc/yum.repos.d/amdgpu.repo
+  echo "priority=50" >> /etc/yum.repos.d/amdgpu.repo
   echo "gpgcheck=1" >> /etc/yum.repos.d/amdgpu.repo
   echo "gpgkey=http://repo.radeon.com/rocm/rocm.gpg.key" >> /etc/yum.repos.d/amdgpu.repo
 
-  local rocm_baseurl="http://repo.radeon.com/rocm/yum/${ROCM_VERSION}"
   echo "[ROCm]" > /etc/yum.repos.d/rocm.repo
   echo "name=ROCm" >> /etc/yum.repos.d/rocm.repo
   echo "baseurl=${rocm_baseurl}" >> /etc/yum.repos.d/rocm.repo
   echo "enabled=1" >> /etc/yum.repos.d/rocm.repo
+  echo "priority=50" >> /etc/yum.repos.d/rocm.repo
   echo "gpgcheck=1" >> /etc/yum.repos.d/rocm.repo
   echo "gpgkey=http://repo.radeon.com/rocm/rocm.gpg.key" >> /etc/yum.repos.d/rocm.repo
 
@@ -109,6 +130,10 @@ install_centos() {
                    rocprofiler-dev \
                    roctracer-dev \
                    amd-smi-lib
+
+  if [[ $(ver $ROCM_VERSION) -ge $(ver 6.1) ]]; then
+    yum install -y rocm-llvm
+  fi
 
   # precompiled miopen kernels; search for all unversioned packages
   # if search fails it will abort this script; use true to avoid case where search fails
@@ -138,7 +163,7 @@ case "$ID" in
   ubuntu)
     install_ubuntu
     ;;
-  centos)
+  centos|rhel|almalinux|rocky)
     install_centos
     ;;
   *)
