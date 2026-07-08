@@ -1,6 +1,5 @@
 # Owner(s): ["module: functorch"]
 # ruff: noqa: F841
-# flake8: noqa: B950
 import unittest
 from collections import deque
 from functools import partial
@@ -38,6 +37,7 @@ from torch.testing._internal.common_utils import (
     skipIfTorchDynamo,
     TEST_CUDA,
     TestCase,
+    xfailIfNoAcceleratorTriton,
 )
 from torch.testing._internal.torchbind_impls import init_torchbind_implementations
 
@@ -91,6 +91,7 @@ def make_inputs_non_leaves(inps):
 @unittest.skipIf(not torch._dynamo.is_dynamo_supported(), "dynamo isn't support")
 class TestWithEffects(TestCase):
     def setUp(self):
+        super().setUp()
         init_torchbind_implementations()
 
     def test_print(self):
@@ -138,7 +139,7 @@ def forward(self, arg1_1):
     with_effects_1 = torch.ops.higher_order.with_effects(getitem, torch.ops.aten._print.default, 'moo');  getitem = None
     getitem_2 = with_effects_1[0];  with_effects_1 = None
     _sink_tokens_default = torch.ops.prims._sink_tokens.default([getitem_2]);  getitem_2 = _sink_tokens_default = None
-    return (add,)""",  # noqa: B950
+    return (add,)""",
             )
 
     def test_torchbind_custom_op(self):
@@ -162,7 +163,7 @@ def forward(self, arg0_1, arg1_1):
     getitem = with_effects[0]
     getitem_1 = with_effects[1];  with_effects = None
     add = torch.ops.aten.add.Tensor(arg1_1, getitem_1);  arg1_1 = getitem_1 = None
-    return (getitem, add)""",  # noqa: B950
+    return (getitem, add)""",
         )
         self.assertEqual(len(gs.input_tokens), 1)
         self.assertEqual(len(gs.output_tokens), 1)
@@ -270,7 +271,11 @@ def forward(self, arg0_1, arg1_1, arg2_1):
             )
 
             def inplace_add(input: torch.Tensor, output: torch.Tensor) -> None:
-                assert input.device == output.device
+                if input.device != output.device:
+                    raise AssertionError(
+                        f"Expected input.device == output.device, "
+                        f"got {input.device} vs {output.device}"
+                    )
                 output.add_(input)
 
             lib.impl("inplace_add", inplace_add, "CompositeExplicitAutograd")
@@ -908,7 +913,9 @@ def forward(self, primals_2, getitem_1, tangents_1, tangents_token):
         finally:
             handle.destroy()
 
+    @xfailIfNoAcceleratorTriton
     @unittest.skipIf(not TEST_CUDA, "triton")
+    @torch._dynamo.config.patch(inline_single_use_invoke_subgraph=False)
     def test_export_invoke_subgraph(self):
         with torch.library._scoped_library("mylib", "FRAGMENT") as lib:
             recorded_list = []
@@ -1030,7 +1037,7 @@ def forward(self, arg1_1, arg2_1, arg3_1, arg4_1, arg5_1, arg6_1, arg7_1, arg8_1
     with_effects = torch.ops.higher_order.with_effects(getitem_4, torch.ops.mylib.record_memory.default, 'forward', 'N');  getitem_4 = None
     getitem_6 = with_effects[0];  with_effects = None
     _sink_tokens_default = torch.ops.prims._sink_tokens.default([getitem_6]);  getitem_6 = _sink_tokens_default = None
-    return (getitem_5,)""",  # noqa: B950
+    return (getitem_5,)""",
                 )
                 self.assertExpectedInline(
                     str(gm.repeated_subgraph0.code).strip(),
@@ -1045,7 +1052,7 @@ def forward(self, arg1_1, arg2_1, arg3_1, arg4_1, arg5_1):
     t_1 = torch.ops.aten.t.default(arg4_1);  arg4_1 = None
     addmm_1 = torch.ops.aten.addmm.default(arg5_1, relu, t_1);  arg5_1 = relu = t_1 = None
     _sink_tokens_default = torch.ops.prims._sink_tokens.default([getitem]);  getitem = _sink_tokens_default = None
-    return (addmm_1,)""",  # noqa: B950
+    return (addmm_1,)""",
                 )
 
         recorded_list.clear()
@@ -1099,7 +1106,7 @@ def forward(self, arg1_1, arg2_1, arg3_1, arg4_1, arg5_1):
 def forward(self, primals_1):
     mul = torch.ops.aten.mul.Tensor(primals_1, primals_1);  primals_1 = None
     sum_1 = torch.ops.aten.sum.default(mul);  mul = None
-    return (sum_1,)""",  # noqa: B950
+    return (sum_1,)""",
             )
 
             self.assertExpectedInline(
@@ -1110,8 +1117,100 @@ def forward(self, tangents_1, tangents_token):
     with_effects = torch.ops.higher_order.with_effects(tangents_token, torch.ops.mylib.log_grad.default, expand);  tangents_token = expand = None
     getitem = with_effects[0]
     getitem_1 = with_effects[1];  with_effects = None
-    return (getitem_1, getitem)""",  # noqa: B950
+    return (getitem_1, getitem)""",
             )
+
+    def test_with_effects_through_functional_tensor_mode(self):
+        from torch._subclasses.functional_tensor import (
+            FunctionalTensor,
+            FunctionalTensorMode,
+        )
+
+        def fn_with_effects(x, y):
+            token = torch.ops.prims._make_token()
+            new_token, result = with_effects(
+                token,
+                torch.ops.aten.add.Tensor,
+                x,
+                y,
+            )
+            return result
+
+        x = torch.randn(3, 3)
+        y = torch.randn(3, 3)
+
+        with (
+            torch._C._ExcludeDispatchKeyGuard(
+                torch._C.DispatchKeySet(torch._C.DispatchKey.Functionalize)
+            ),
+            FunctionalTensorMode(),
+        ):
+            x_func = FunctionalTensor.to_functional(x)
+            y_func = FunctionalTensor.to_functional(y)
+            result = fn_with_effects(x_func, y_func)
+
+        expected = x + y
+        if isinstance(result, FunctionalTensor):
+            result = torch._from_functional_tensor(result.elem)
+        self.assertEqual(result, expected)
+
+    @unittest.skipIf(IS_WINDOWS, "triton")
+    @unittest.skipIf(not SM80OrLater, "triton")
+    @unittest.skipIf(not TEST_CUDA, "requires CUDA")
+    def test_effectful_op_with_flex_attention(self):
+        """Test that effectful custom ops work with flex_attention."""
+        from torch._library.effects import EffectType
+        from torch.nn.attention.flex_attention import flex_attention
+
+        with torch.library._scoped_library("mylib", "FRAGMENT") as lib:
+
+            @torch.library.custom_op("mylib::noop", mutates_args=())
+            def noop(x: torch.Tensor) -> torch.Tensor:
+                return x.clone()
+
+            @noop.register_fake
+            def noop_fake(x: torch.Tensor) -> torch.Tensor:
+                return x.clone()
+
+            noop.register_effect(EffectType.ORDERED)
+
+            def score_mod(score, b, h, q_idx, kv_idx):
+                return score
+
+            def fn(q, k, v):
+                q = torch.ops.mylib.noop(q)
+                out = flex_attention(q, k, v, score_mod=score_mod)
+                return out
+
+            batch_size, num_heads, seq_len, head_dim = 2, 4, 128, 64
+            q = torch.randn(
+                batch_size,
+                num_heads,
+                seq_len,
+                head_dim,
+                device="cuda",
+                dtype=torch.float16,
+            )
+            k = torch.randn(
+                batch_size,
+                num_heads,
+                seq_len,
+                head_dim,
+                device="cuda",
+                dtype=torch.float16,
+            )
+            v = torch.randn(
+                batch_size,
+                num_heads,
+                seq_len,
+                head_dim,
+                device="cuda",
+                dtype=torch.float16,
+            )
+
+            compiled_fn = torch.compile(fn)
+            out = compiled_fn(q, k, v)
+            self.assertEqual(out.shape, (batch_size, num_heads, seq_len, head_dim))
 
 
 if __name__ == "__main__":

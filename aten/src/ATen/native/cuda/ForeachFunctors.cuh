@@ -1,6 +1,7 @@
 #pragma once
 #include <ATen/OpMathType.h>
 #include <ATen/native/ForeachUtils.h>
+#include <ATen/native/cuda/DeviceAddCmulCdiv.cuh>
 #include <ATen/native/cuda/MultiTensorApply.cuh>
 #include <ATen/native/cuda/Pow.cuh>
 
@@ -76,6 +77,34 @@ __device__ bool init_args(
   return all_aligned;
 }
 
+template <
+    int depth,
+    typename param_type,
+    typename grad_type,
+    typename exp_avg_type,
+    typename exp_avg_sq_type>
+__device__ bool init_args_mixed_prec(
+    param_type** param_args,
+    grad_type** grad_args,
+    exp_avg_type** exp_avg_args,
+    exp_avg_sq_type** exp_avg_sq_args,
+    FusedOptimizerTensorListMetadata<depth>& tl,
+    const int64_t chunk_idx,
+    const int64_t chunk_size,
+    const int64_t tensor_loc) {
+  *param_args =
+      (param_type*)tl.addresses[0][tensor_loc] + chunk_idx * chunk_size;
+  *grad_args = (grad_type*)tl.addresses[1][tensor_loc] + chunk_idx * chunk_size;
+  *exp_avg_args =
+      (exp_avg_type*)tl.addresses[2][tensor_loc] + chunk_idx * chunk_size;
+  *exp_avg_sq_args =
+      (exp_avg_sq_type*)tl.addresses[3][tensor_loc] + chunk_idx * chunk_size;
+
+  bool all_aligned = is_aligned(*param_args) && is_aligned(*grad_args) &&
+      is_aligned(*exp_avg_args) && is_aligned(*exp_avg_sq_args);
+  return all_aligned;
+}
+
 template <int depth, typename T>
 __device__ void load_args(
     T r_args[][kILP],
@@ -95,6 +124,43 @@ __device__ void load_args(
   }
 }
 
+template <
+    typename T,
+    typename param_type,
+    typename grad_type,
+    typename exp_avg_type,
+    typename exp_avg_sq_type>
+__device__ void load_args(
+    T r_args[][kILP],
+    const param_type* param_args,
+    const grad_type* grad_args,
+    const exp_avg_type* exp_avg_args,
+    const exp_avg_sq_type* exp_avg_sq_args,
+    const int64_t i_start,
+    const int64_t chunk_size,
+    const int64_t n) {
+#pragma unroll
+  for (int ii = 0; ii < kILP; ii++) {
+    const auto i = i_start + threadIdx.x + ii * blockDim.x;
+    r_args[0][ii] = 0;
+    if (i < n && i < chunk_size) {
+      r_args[0][ii] = static_cast<T>(param_args[i]);
+    }
+    r_args[1][ii] = 0;
+    if (i < n && i < chunk_size) {
+      r_args[1][ii] = static_cast<T>(grad_args[i]);
+    }
+    r_args[2][ii] = 0;
+    if (i < n && i < chunk_size) {
+      r_args[2][ii] = static_cast<T>(exp_avg_args[i]);
+    }
+    r_args[3][ii] = 0;
+    if (i < n && i < chunk_size) {
+      r_args[3][ii] = static_cast<T>(exp_avg_sq_args[i]);
+    }
+  }
+}
+
 template <typename T>
 __device__ void store_args(
     T* dst,
@@ -107,6 +173,21 @@ __device__ void store_args(
     const int64_t i = i_start + threadIdx.x + ii * blockDim.x;
     if (i < n && i < chunk_size)
       dst[i] = src[ii];
+  }
+}
+
+template <typename dT, typename sT>
+__device__ void store_args(
+    dT* dst,
+    sT* src,
+    const int64_t i_start,
+    const int64_t chunk_size,
+    const int64_t n) {
+#pragma unroll
+  for (int ii = 0; ii < kILP; ii++) {
+    const int64_t i = i_start + threadIdx.x + ii * blockDim.x;
+    if (i < n && i < chunk_size)
+      dst[i] = static_cast<dT>(src[ii]);
   }
 }
 
@@ -172,11 +253,8 @@ __device__ __forceinline__ void pointwise_op_scalar(
       load_store(r_args[2], args[2], 0, i_start);
 #pragma unroll
       for (int ii = 0; ii < kILP; ii++) {
-        r_args[0][ii] = static_cast<T>(
-            static_cast<opmath_t>(r_args[0][ii]) +
-            scalar *
-                op(static_cast<opmath_t>(r_args[1][ii]),
-                   static_cast<opmath_t>(r_args[2][ii])));
+        r_args[0][ii] = pointwise_op_impl<opmath_t>(
+            r_args[0][ii], r_args[1][ii], r_args[2][ii], scalar, op);
       }
       // store
       load_store(args[res_arg_index], r_args[0], i_start, 0);
@@ -189,11 +267,8 @@ __device__ __forceinline__ void pointwise_op_scalar(
       load_args<3>(r_args, args, i_start, chunk_size, n);
 #pragma unroll
       for (int ii = 0; ii < kILP; ii++) {
-        r_args[0][ii] = static_cast<T>(
-            static_cast<opmath_t>(r_args[0][ii]) +
-            scalar *
-                op(static_cast<opmath_t>(r_args[1][ii]),
-                   static_cast<opmath_t>(r_args[2][ii])));
+        r_args[0][ii] = pointwise_op_impl<opmath_t>(
+            r_args[0][ii], r_args[1][ii], r_args[2][ii], scalar, op);
       }
       store_args(args[res_arg_index], r_args[0], i_start, chunk_size, n);
     }
@@ -545,9 +620,8 @@ struct PointwiseOpScalar0dTensorFunctor {
 #pragma unroll
         for (int ii = 0; ii < kILP; ii++) {
           // input + alpha * op(tensor1_val, tensor2)
-          r_args[0][ii] = static_cast<T>(
-              static_cast<opmath_t>(r_args[0][ii]) +
-              alpha * op(tensor1_val, static_cast<opmath_t>(r_args[1][ii])));
+          r_args[0][ii] = pointwise_op_impl<opmath_t>(
+              r_args[0][ii], tensor1_val, r_args[1][ii], alpha, op);
         }
         // store
         load_store(args[res_arg_index], r_args[0], i_start, 0);
@@ -570,9 +644,8 @@ struct PointwiseOpScalar0dTensorFunctor {
         }
 #pragma unroll
         for (int ii = 0; ii < kILP; ii++) {
-          r_args[0][ii] = static_cast<T>(
-              static_cast<opmath_t>(r_args[0][ii]) +
-              alpha * op(tensor1_val, static_cast<opmath_t>(r_args[1][ii])));
+          r_args[0][ii] = pointwise_op_impl<opmath_t>(
+              r_args[0][ii], tensor1_val, r_args[1][ii], alpha, op);
         }
         store_args(args[res_arg_index], r_args[0], i_start, chunk_size, n);
       }

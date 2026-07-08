@@ -12,6 +12,7 @@
 #include <ATen/ops/empty.h>
 #include <ATen/ops/empty_strided.h>
 #include <ATen/ops/mm.h>
+#include <ATen/ops/zeros.h>
 #endif
 
 namespace at::native {
@@ -21,7 +22,17 @@ inline bool check_valid_strides_and_return_transposed(const Tensor& mat) {
   IntArrayRef tensor_sizes = mat.sizes();
   int end_dim = mat.dim() - 1;
   int alignment = 16 / mat.element_size();
-  TORCH_CHECK(uint64_t(mat.data_ptr()) % 16 ==0, "expected data_ptr to be aligned to 16 bytes\n");
+  bool is_cpu = mat.device().is_cpu();
+  TORCH_CHECK(is_cpu || uint64_t(mat.data_ptr()) % 16 == 0, "expected data_ptr to be aligned to 16 bytes");
+  // 3D inputs: per-batch pointer is base + i*stride(0)*element_size. cuBLAS and cutlass
+  // grouped GEMM kernels use TMA which requires 16-byte-aligned pointers, so
+  // the per-batch step must preserve the alignment of the base pointer.
+  if (!is_cpu && mat.dim() == 3) {
+    TORCH_CHECK(tensor_strides[0] % alignment == 0,
+        "batch stride must yield 16-byte-aligned per-batch pointers, got stride(0)=",
+        tensor_strides[0], " with element size ", mat.element_size(),
+        " (sizes=", tensor_sizes, ", strides=", tensor_strides, ")");
+  }
   if ((tensor_strides[end_dim - 1] == 1) && (tensor_strides[end_dim] >= std::max<int64_t>(1, tensor_sizes[end_dim - 1]))) {
     TORCH_CHECK(tensor_strides[end_dim] % alignment == 0, "strides should be multiple of 16 bytes");
     return true;
@@ -73,6 +84,12 @@ c10::ScalarType out_dtype
   }
   return at::empty_strided(out_size, out_stride, mat_a.options().dtype(out_dtype));
   #else
+  // For ROCm 2D-2D case (output is 3D), zero-initialize to handle K=0 or small K
+  // groups correctly. When K=0, the mathematically correct result is zeros,
+  // but CK kernel may not write to the output region.
+  if (a_is_2d && b_is_2d) {
+    return at::zeros(out_size, mat_a.options().dtype(out_dtype));
+  }
   return at::empty(out_size, mat_a.options().dtype(out_dtype));
   #endif
 }
@@ -99,6 +116,7 @@ std::optional<c10::ScalarType> out_dtype) {
   if (offs.has_value()) {
     TORCH_CHECK(offs->dim() == 1, "offs has to be 1D");
     TORCH_CHECK(offs->dtype() == at::kInt, "Offsets have to be int32");
+    TORCH_CHECK(offs->stride(0) == 1, "Offsets must have stride (1,)");
   }
   TORCH_CHECK(!bias.has_value(), "Bias not supported yet");
 }

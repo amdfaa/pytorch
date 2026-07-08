@@ -17,7 +17,7 @@ from torch.testing._internal.common_utils import (
 )
 
 
-class GeneratorTestsBase(torch._dynamo.test_case.TestCaseWithNestedGraphBreaks):
+class GeneratorTestsBase(torch._dynamo.test_case.TestCase):
     def setUp(self):
         super().setUp()
         self._old = torch._dynamo.config.enable_faithful_generator_behavior
@@ -346,9 +346,7 @@ class GraphModule(torch.nn.Module):
         t = torch.randn(2)
         ctx = whoo()
         next(ctx)
-        with self.assertRaisesRegex(
-            Unsupported, "Detected a method call to a user-defined generator object."
-        ):
+        with self.assertRaises(Unsupported):
             fn(t, ctx)
 
     def test_generator_as_argument_2(self):
@@ -365,14 +363,12 @@ class GraphModule(torch.nn.Module):
         t = torch.randn(2)
         ctx = whoo(t)
         next(ctx)
-        with self.assertRaisesRegex(
-            Unsupported, "Detected a method call to a user-defined generator object."
-        ):
+        with self.assertRaises(Unsupported):
             fn(t, ctx)
 
     def test_generator_as_argument_3(self):
-        # The inline tracer needs to be kept in sync if an already advanced generator
-        # is given to a compiled function.
+        # An unstarted generator passed as an argument is re-inlined as if its
+        # function were called here, so next() works.
         def whoo():
             yield 1
             yield 2
@@ -386,10 +382,7 @@ class GraphModule(torch.nn.Module):
 
         t = torch.randn(2)
         ctx = whoo()
-        with self.assertRaisesRegex(
-            Unsupported, "Detected a method call to a user-defined generator object."
-        ):
-            fn(t, ctx)
+        self.assertEqual(fn(t, ctx), t + 1)
 
     def test_generator_as_argument_4(self):
         def whoo(x):
@@ -404,10 +397,7 @@ class GraphModule(torch.nn.Module):
 
         t = torch.randn(2)
         ctx = whoo(t)
-        with self.assertRaisesRegex(
-            Unsupported,
-            "Detected a method call to a user-defined generator object.",
-        ):
+        with self.assertRaises(Unsupported):
             fn(t, ctx)
 
     def test_islice_chain(self):
@@ -911,6 +901,17 @@ class GraphModule(torch.nn.Module):
         self.assertRaises(StopIteration, next, g)
         self.assertFalse(3 in whoo())
 
+    def test_raise_immediately(self):
+        # see https://github.com/python/cpython/issues/143493
+        @torch.compile(fullgraph=True, backend="eager")
+        def f(s):
+            return (x for x in s)
+
+        with self.assertRaisesRegex(
+            torch._dynamo.exc.Unsupported, "'int' object is not iterable"
+        ):
+            f(1)
+
 
 class TestGeneratorSend(GeneratorTestsBase):
     def test_send(self):
@@ -1144,7 +1145,7 @@ class TestGeneratorClose(GeneratorTestsBase):
         except exc:
             z = 1
         finally:
-            assert z == 1
+            assert z == 1  # noqa: S101
 
     def test_close_with_subgen(self):
         L = []
@@ -1500,7 +1501,7 @@ class TestGeneratorThrow(GeneratorTestsBase):
                 z = 1
             except Exception as e:
                 raise AssertionError from e
-            assert z == 1
+            assert z == 1  # noqa: S101
             return t.sin()
 
         self._compile_check(fn)
@@ -1520,7 +1521,7 @@ class TestGeneratorThrow(GeneratorTestsBase):
             try:
                 gen.throw(ValueError)
             except StopIteration as e:
-                assert e.args[0] == 3
+                assert e.args[0] == 3  # noqa: S101
             except Exception as e:
                 raise AssertionError from e
             return t.sin()
@@ -1546,7 +1547,7 @@ class TestGeneratorThrow(GeneratorTestsBase):
             try:
                 gen.throw(ValueError)
             except StopIteration as e:
-                assert e.args[0].x == 3
+                assert e.args[0].x == 3  # noqa: S101
             except Exception as e:
                 raise AssertionError from e
             return t.sin()
@@ -1568,7 +1569,7 @@ class TestGeneratorThrow(GeneratorTestsBase):
             try:
                 gen.throw(ValueError)
             except StopIteration as e:
-                assert len(e.args) == 0
+                assert len(e.args) == 0  # noqa: S101
             except Exception as e:
                 raise AssertionError from e
             return t.sin()

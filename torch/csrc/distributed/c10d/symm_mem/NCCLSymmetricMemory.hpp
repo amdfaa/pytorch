@@ -25,6 +25,8 @@ class NCCLSymmetricMemory : public SymmetricMemory {
 
   size_t get_buffer_size() override;
 
+  std::string get_group_name();
+
   bool has_multicast_support() override;
 
   void* get_multicast_ptr() override;
@@ -42,8 +44,6 @@ class NCCLSymmetricMemory : public SymmetricMemory {
   c10::Device get_device() override;
 
   ncclWindow_t get_window();
-
-  ncclWindow_t get_signal_pad_handle();
 
   size_t get_offset() override;
 

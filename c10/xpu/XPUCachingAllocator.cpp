@@ -147,10 +147,34 @@ struct ExpandableSegment {
     // The extra 1/8 allows flexibility for remapping or moving pages within the
     // segment when unmapping earlier regions.
     constexpr float kVirtualMemOversubscriptFactor = 1.125f; // 1 + 1/8
+    auto min_granularity = sycl::ext::oneapi::experimental::get_mem_granularity(
+        c10::xpu::get_raw_device(device),
+        c10::xpu::get_device_context(),
+        sycl::ext::oneapi::experimental::granularity_mode::minimum);
+    TORCH_CHECK(
+        segment_size_ % min_granularity == 0,
+        "segment_size (",
+        segment_size_,
+        ") must be a multiple of the device memory granularity (",
+        min_granularity,
+        ")");
     max_handles_ = numSegments(static_cast<size_t>(
         static_cast<float>(device_total) * kVirtualMemOversubscriptFactor));
     ptr_ = sycl::ext::oneapi::experimental::reserve_virtual_mem(
         segment_size_ * max_handles_, xpu::get_device_context());
+    TORCH_CHECK(
+        ptr_ != 0,
+        "Failed to reserve virtual memory of size ",
+        format_size(segment_size_ * max_handles_));
+    TORCH_CHECK(
+        ptr_ % min_granularity == 0,
+        "Reserved virtual address (0x",
+        std::hex,
+        ptr_,
+        std::dec,
+        ") is not aligned to device memory granularity (",
+        min_granularity,
+        ")");
   }
 
   C10_DISABLE_COPY_AND_ASSIGN(ExpandableSegment);
@@ -509,6 +533,8 @@ class DeviceCachingAllocator {
   // Pools no longer referenced by any graph.
   ska::flat_hash_map<MempoolId_t, PrivatePool*, MempoolIdHash>
       graph_pools_freeable;
+
+  std::vector<AllocatorTraceTracker> trace_trackers_;
 
   size_t try_merge_blocks(Block* dst, Block* src, BlockPool& pool) {
     if (!src || src->allocated || src->event_count > 0 ||
@@ -1545,21 +1571,26 @@ class DeviceCachingAllocator {
       c10::DeviceIndex device,
       MempoolId_t mempool_id,
       std::shared_ptr<GatheredContext> context) {
-    if (!record_history)
-      return;
-    bool should_skip = skip_actions_list.count(action) > 0;
-    if (should_skip)
+    if (!record_history && trace_trackers_.empty())
       return;
     TraceEntry te(
         action,
         device,
         addr,
         size,
-        queue,
+        reinterpret_cast<void*>(queue),
         mempool_id,
         getApproximateTime(),
         record_context_ >= RecordContext::ALLOC ? std::move(context) : nullptr);
-    alloc_buffer.insertEntries(te);
+
+    for (const auto& cb : trace_trackers_) {
+      cb(te);
+    }
+
+    bool should_skip = skip_actions_list.count(action) > 0;
+    if (record_history && !should_skip) {
+      alloc_buffer.insertEntries(te);
+    }
   }
 
   std::vector<SegmentInfo> snapshot(MempoolId_t mempool_id) {
@@ -1593,7 +1624,7 @@ class DeviceCachingAllocator {
       SegmentInfo& segment_info = result.back();
       segment_info.device = head_block->device;
       segment_info.address = reinterpret_cast<size_t>(head_block->ptr);
-      segment_info.queue = head_block->queue;
+      segment_info.stream = reinterpret_cast<void*>(head_block->queue);
       segment_info.is_large = (!head_block->pool->is_small);
       segment_info.is_expandable = head_block->expandable_segment;
       segment_info.context_when_allocated =
@@ -1665,24 +1696,10 @@ class DeviceCachingAllocator {
     TORCH_CHECK(when == RecordContext::NEVER || context_recorder);
     record_history = enabled;
 
-    static const std::unordered_map<std::string, TraceEntry::Action>
-        kActionMap = {
-            {"alloc", TraceEntry::Action::ALLOC},
-            {"free_requested", TraceEntry::Action::FREE_REQUESTED},
-            {"free_completed", TraceEntry::Action::FREE_COMPLETED},
-            {"segment_alloc", TraceEntry::Action::SEGMENT_ALLOC},
-            {"segment_free", TraceEntry::Action::SEGMENT_FREE},
-            {"segment_map", TraceEntry::Action::SEGMENT_MAP},
-            {"segment_unmap", TraceEntry::Action::SEGMENT_UNMAP},
-            {"snapshot", TraceEntry::Action::SNAPSHOT},
-            {"oom", TraceEntry::Action::OOM},
-        };
-
     skip_actions_list.clear();
     for (const auto& action_str : skip_actions) {
-      auto it = kActionMap.find(action_str);
-      TORCH_CHECK(it != kActionMap.end(), "Unknown skip action: ", action_str);
-      skip_actions_list.insert(it->second);
+      auto action = parseTraceEntryAction(action_str);
+      skip_actions_list.insert(action);
     }
 
     context_recorder_.store(record_history ? context_recorder : nullptr);
@@ -1691,6 +1708,11 @@ class DeviceCachingAllocator {
     if (!enabled || clearHistory) {
       alloc_buffer.clear();
     }
+  }
+
+  void attachAllocatorTraceTracker(AllocatorTraceTracker tracker) {
+    std::unique_lock<std::recursive_mutex> lock(mutex);
+    trace_trackers_.emplace_back(std::move(tracker));
   }
 
   std::pair<size_t, size_t> getMemoryInfo() {
@@ -2018,6 +2040,12 @@ class NativeCachingAllocator : public XPUAllocator {
     }
   }
 
+  void attachAllocatorTraceTracker(AllocatorTraceTracker tracker) {
+    for (auto& allocator : device_allocators) {
+      allocator->attachAllocatorTraceTracker(tracker);
+    }
+  }
+
   void createOrIncrefPool(
       c10::DeviceIndex device,
       MempoolId_t mempool_id,
@@ -2095,6 +2123,10 @@ void recordHistory(
       when,
       clearHistory,
       skip_actions);
+}
+
+void attachAllocatorTraceTracker(AllocatorTraceTracker tracker) {
+  native_allocator.attachAllocatorTraceTracker(tracker);
 }
 
 SnapshotInfo snapshot(MempoolId_t mempool_id) {

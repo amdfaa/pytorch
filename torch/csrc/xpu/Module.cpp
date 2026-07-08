@@ -1,6 +1,7 @@
 #include <ATen/ATen.h>
 #include <ATen/xpu/XPUContext.h>
 #include <ATen/xpu/XPUGeneratorImpl.h>
+#include <ATen/xpu/XPUGraphsUtils.h>
 #include <c10/xpu/XPUCachingAllocator.h>
 #include <c10/xpu/XPUFunctions.h>
 #include <torch/csrc/Module.h>
@@ -298,11 +299,9 @@ static void registerXpuDeviceProperties(PyObject* module) {
   auto gpu_subslice_count = [](const DeviceProp& prop) {
     return (prop.gpu_eu_count / prop.gpu_eu_count_per_subslice);
   };
-#if SYCL_COMPILER_VERSION >= 20250000
   auto get_device_architecture = [](const DeviceProp& prop) {
     return static_cast<int64_t>(prop.architecture);
   };
-#endif
   // Wrapper class for XPU UUID
   struct XPUuuid {
     XPUuuid(const std::array<unsigned char, 16>& uuid) : bytes(uuid) {}
@@ -335,7 +334,10 @@ static void registerXpuDeviceProperties(PyObject* module) {
       ._(gpu_eu_count)                                           \
       ._(max_work_group_size)                                    \
       ._(max_num_sub_groups)                                     \
+      ._(memory_clock_rate)                                      \
+      ._(memory_bus_width)                                       \
       ._(sub_group_sizes)                                        \
+      ._(local_mem_size)                                         \
       ._(has_fp16)                                               \
       ._(has_fp64)                                               \
       ._(has_atomic64)                                           \
@@ -345,11 +347,14 @@ static void registerXpuDeviceProperties(PyObject* module) {
       ._(has_subgroup_2d_block_io)
 
   THXP_FORALL_DEVICE_PROPERTIES(DEFINE_READONLY_MEMBER)
-      .def_readonly("total_memory", &DeviceProp::global_mem_size)
-      .def_property_readonly("gpu_subslice_count", gpu_subslice_count)
-#if SYCL_COMPILER_VERSION >= 20250000
-      .def_property_readonly("architecture", get_device_architecture)
+#if SYCL_COMPILER_VERSION >= 20260000
+      .def_readonly("is_integrated_gpu", &DeviceProp::is_integrated_gpu)
 #endif
+      .def_readonly("total_memory", &DeviceProp::global_mem_size)
+      // TODO: Expose cache size by level when available from SYCL
+      .def_readonly("last_level_cache_size", &DeviceProp::global_mem_cache_size)
+      .def_property_readonly("gpu_subslice_count", gpu_subslice_count)
+      .def_property_readonly("architecture", get_device_architecture)
       .def_property_readonly("type", get_device_type)
       .def_property_readonly(
           "uuid",
@@ -366,16 +371,25 @@ static void registerXpuDeviceProperties(PyObject* module) {
                           reinterpret_cast<const char*>(prop.uuid.data()))
                    << ", driver_version='" << prop.driver_version
                    << "', total_memory="
-                   << prop.global_mem_size / (1024ull * 1024) << "MB"
-                   << ", max_compute_units=" << prop.max_compute_units
-                   << ", gpu_eu_count=" << prop.gpu_eu_count
+                   << prop.global_mem_size / (1024ull * 1024)
+                   << "MB, local_mem_size=" << prop.local_mem_size / 1024ull
+                   << "KB, last_level_cache_size="
+                   << prop.global_mem_cache_size / 1024ull
+                   << "KB, max_compute_units=" << prop.max_compute_units
+                   << ", memory_clock_rate=" << prop.memory_clock_rate
+                   << "MHz, memory_bus_width=" << prop.memory_bus_width
+                   << "-bit, gpu_eu_count=" << prop.gpu_eu_count
                    << ", gpu_subslice_count=" << gpu_subslice_count(prop)
                    << ", max_work_group_size=" << prop.max_work_group_size
                    << ", max_num_sub_groups=" << prop.max_num_sub_groups
                    << ", sub_group_sizes=[" << prop.sub_group_sizes
                    << "], has_fp16=" << prop.has_fp16
                    << ", has_fp64=" << prop.has_fp64
-                   << ", has_atomic64=" << prop.has_atomic64 << ')';
+                   << ", has_atomic64=" << prop.has_atomic64
+#if SYCL_COMPILER_VERSION >= 20260000
+                   << ", is_integrated_gpu=" << prop.is_integrated_gpu
+#endif
+                   << ')';
             return stream.str();
           });
 }
@@ -387,6 +401,14 @@ static void registerXpuPluggableAllocator(PyObject* module) {
       c10::xpu::XPUCachingAllocator::XPUAllocator,
       std::shared_ptr<c10::xpu::XPUCachingAllocator::XPUAllocator>>(
       m, "_xpu_XPUAllocator");
+
+  // Register concrete XPUPluggableAllocator type with inheritance
+  py::class_<
+      torch::xpu::XPUPluggableAllocator::XPUPluggableAllocator,
+      c10::xpu::XPUCachingAllocator::XPUAllocator,
+      std::shared_ptr<
+          torch::xpu::XPUPluggableAllocator::XPUPluggableAllocator>>(
+      m, "_XPUPluggableAllocator");
 
   m.def("_xpu_getAllocator", []() {
     return py::cast(torch::xpu::XPUPluggableAllocator::getCurrentAllocator());
@@ -449,8 +471,8 @@ static void initXpuMethodBindings(PyObject* module) {
     c10::xpu::XPUCachingAllocator::setMemoryFraction(fraction, device);
   });
   m.def("_xpu_memorySnapshot", [](std::optional<c10::MempoolId_t> mempool_id) {
-    using c10::xpu::XPUCachingAllocator::BlockInfo;
-    using c10::xpu::XPUCachingAllocator::SegmentInfo;
+    using c10::CachingDeviceAllocator::BlockInfo;
+    using c10::CachingDeviceAllocator::SegmentInfo;
 
     py::str device_s = "device";
     py::str address_s = "address";
@@ -499,7 +521,7 @@ static void initXpuMethodBindings(PyObject* module) {
       segmentDict[requested_size_s] = segmentInfo.requested_size;
       // To ensure Python objects can be easily pickled, we represent the stream
       // as an integer rather than as a Stream object.
-      segmentDict[stream_s] = reinterpret_cast<uint64_t>(segmentInfo.queue);
+      segmentDict[stream_s] = reinterpret_cast<uint64_t>(segmentInfo.stream);
       segmentDict[segment_type_s] = (segmentInfo.is_large ? large_s : small_s);
       segmentDict[segment_pool_id] = segmentInfo.owner_private_pool_id;
       segmentDict[is_expandable_s] = segmentInfo.is_expandable;
@@ -547,7 +569,7 @@ static void initXpuMethodBindings(PyObject* module) {
     py::str oom_s = "oom";
     py::str device_free_s = "device_free";
 
-    using namespace c10::xpu::XPUCachingAllocator;
+    using c10::CachingDeviceAllocator::TraceEntry;
 
     const std::unordered_map<TraceEntry::Action, py::str> action_str_map = {
         {TraceEntry::ALLOC, alloc_s},
@@ -581,7 +603,7 @@ static void initXpuMethodBindings(PyObject* module) {
         trace_entry[TraceEntry::OOM == te.action_ ? device_free_s : addr_s] =
             te.addr_;
         trace_entry[size_s] = te.size_;
-        trace_entry[stream_s] = reinterpret_cast<uint64_t>(te.queue_);
+        trace_entry[stream_s] = reinterpret_cast<uint64_t>(te.stream_);
         trace_entry[time_us_s] = te.time_.t_;
         trace.append(trace_entry);
       }
@@ -610,6 +632,27 @@ static void initXpuMethodBindings(PyObject* module) {
     return result;
   });
   m.def("_xpu_recordMemoryHistory", &torch::xpu::_record_memory_history);
+  m.def(
+      "_xpu_beginAllocateCurrentThreadToPool",
+      [](c10::DeviceIndex device, at::xpu::MempoolId_t mempool_id) {
+        auto tid = std::this_thread::get_id();
+
+        c10::xpu::XPUCachingAllocator::beginAllocateToPool(
+            device, mempool_id, [=](sycl::queue*) {
+              auto current_tid = std::this_thread::get_id();
+              return current_tid == tid;
+            });
+      });
+  m.def(
+      "_xpu_endAllocateToPool",
+      [](c10::DeviceIndex device, at::xpu::MempoolId_t mempool_id) {
+        c10::xpu::XPUCachingAllocator::endAllocateToPool(device, mempool_id);
+      });
+  m.def(
+      "_xpu_releasePool",
+      [](c10::DeviceIndex device, at::xpu::MempoolId_t mempool_id) {
+        c10::xpu::XPUCachingAllocator::releasePool(device, mempool_id);
+      });
 }
 
 // Callback for python part. Used for additional initialization of python
@@ -645,6 +688,19 @@ static PyObject* THXPModule_initExtension(PyObject* self, PyObject* noargs) {
   END_HANDLE_TH_ERRORS
 }
 
+static PyObject* THXPModule_isCurrentStreamCapturing_wrap(
+    PyObject* self,
+    PyObject* noargs) {
+  HANDLE_TH_ERRORS
+  if (at::xpu::currentStreamCaptureStatus() ==
+      at::xpu::CaptureStatus::Executing) {
+    Py_RETURN_FALSE;
+  } else {
+    Py_RETURN_TRUE;
+  }
+  END_HANDLE_TH_ERRORS
+}
+
 // NOLINTNEXTLINE(*-c-arrays*, *-global-variables)
 static struct PyMethodDef _THXPModule_methods[] = {
     {"_xpu_init", THXPModule_initExtension, METH_NOARGS, nullptr},
@@ -668,6 +724,10 @@ static struct PyMethodDef _THXPModule_methods[] = {
     {"_xpu_getCurrentRawStream",
      THXPModule_getCurrentStream_raw,
      METH_O,
+     nullptr},
+    {"_xpu_isCurrentStreamCapturing",
+     THXPModule_isCurrentStreamCapturing_wrap,
+     METH_NOARGS,
      nullptr},
     {"_xpu_setStream",
      castPyCFunctionWithKeywords(THXPModule_setStream_wrap),
