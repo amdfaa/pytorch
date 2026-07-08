@@ -13,9 +13,9 @@ RUN yum install -y sudo wget curl perl util-linux xz bzip2 git patch which perl 
 ENV PATH=/opt/rh/gcc-toolset-${DEVTOOLSET_VERSION}/root/usr/bin:$PATH
 ENV LD_LIBRARY_PATH=/opt/rh/gcc-toolset-${DEVTOOLSET_VERSION}/root/usr/lib64:/opt/rh/gcc-toolset-${DEVTOOLSET_VERSION}/root/usr/lib:$LD_LIBRARY_PATH
 
-# cmake-3.18.4 from pip
+# cmake-3.18.4.post1 from pip
 RUN yum install -y python3-pip && \
-    python3 -mpip install cmake==3.18.4 && \
+    python3 -mpip install cmake==3.18.4.post1 && \
     ln -s /usr/local/bin/cmake /usr/bin/cmake3
 
 FROM base as openssl
@@ -87,11 +87,12 @@ RUN yum install -y \
         xz \
         gcc-toolset-${DEVTOOLSET_VERSION}-toolchain \
         glibc-langpack-en
-RUN yum install -y \
-    https://repo.ius.io/ius-release-el7.rpm \
-    https://ossci-linux.s3.amazonaws.com/epel-release-7-14.noarch.rpm
-
-RUN yum swap -y git git236-core
+RUN if rpm --eval '%{rhel}' | grep -q '^7$'; then \
+        yum install -y \
+            https://repo.ius.io/ius-release-el7.rpm \
+            https://ossci-linux.s3.amazonaws.com/epel-release-7-14.noarch.rpm && \
+        yum swap -y git git236-core; \
+    fi
 # git236+ would refuse to run git commands in repos owned by other users
 # Which causes version check to fail, as pytorch repo is bind-mounted into the image
 # Override this behaviour by treating every folder as safe
@@ -126,13 +127,15 @@ ENV PATH=/opt/rh/gcc-toolset-${DEVTOOLSET_VERSION}/root/usr/bin:$PATH
 ENV LD_LIBRARY_PATH=/opt/rh/gcc-toolset-${DEVTOOLSET_VERSION}/root/usr/lib64:/opt/rh/gcc-toolset-${DEVTOOLSET_VERSION}/root/usr/lib:$LD_LIBRARY_PATH
 # Install setuptools and wheel for python 3.12/3.13
 RUN for cpython_version in "cp312-cp312" "cp313-cp313" "cp313-cp313t"; do \
-    /opt/python/${cpython_version}/bin/python -m pip install setuptools wheel; \
+    if [ -x /opt/python/${cpython_version}/bin/python ]; then \
+        /opt/python/${cpython_version}/bin/python -m pip install setuptools wheel; \
+    fi; \
     done;
 
 
-# cmake-3.18.4 from pip
+# cmake-3.18.4.post1 from pip
 RUN yum install -y python3-pip && \
-    python3 -mpip install cmake==3.18.4 && \
+    python3 -mpip install cmake==3.18.4.post1 && \
     ln -s /usr/local/bin/cmake /usr/bin/cmake3
 
 FROM cpu_final as cuda_final

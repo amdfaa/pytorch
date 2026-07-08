@@ -71,14 +71,16 @@ install_centos() {
   . /etc/os-release
 
   yum update -y
-  yum install -y kmod wget openblas-devel sqlite
+  yum install -y kmod wget sqlite
 
   if [[ "${ID}" == "centos" ]]; then
     yum install -y epel-release
     yum install -y dkms kernel-headers-`uname -r` kernel-devel-`uname -r`
   else
     yum install -y epel-release dnf-plugins-core
+    dnf config-manager --set-enabled powertools || dnf config-manager --set-enabled crb || true
   fi
+  yum install -y openblas-devel
 
   # Add amdgpu repository
   local amdgpu_baseurl
