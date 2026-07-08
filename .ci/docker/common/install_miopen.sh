@@ -76,7 +76,8 @@ if [[ $ROCM_INT -ge 60300 ]]; then
     echo "ROCm 6.3+ MIOpen does not need any patches, do not build from source"
     exit 0
 elif [[ $ROCM_INT -ge 60200 ]] && [[ $ROCM_INT -lt 60300 ]]; then
-    MIOPEN_BRANCH="release/rocm-rel-6.2-staging"
+    echo "ROCm 6.2 MIOpen does not need any patches, do not build from source"
+    exit 0
 elif [[ $ROCM_INT -ge 60100 ]] && [[ $ROCM_INT -lt 60200 ]]; then
     echo "ROCm 6.1 MIOpen does not need any patches, do not build from source"
     exit 0
