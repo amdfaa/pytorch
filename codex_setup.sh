@@ -17,24 +17,30 @@ install_docker_packages() {
 
     run_as_root env DEBIAN_FRONTEND=noninteractive apt-get update
 
+    local python_venv_package
+    python_venv_package="$(python3 - <<'PY'
+import sys
+
+print(f"python{sys.version_info.major}.{sys.version_info.minor}-venv")
+PY
+)"
+
     local buildx_package
     buildx_package=""
     if apt-cache show docker-buildx >/dev/null 2>&1; then
         buildx_package="docker-buildx"
     elif apt-cache show docker-buildx-plugin >/dev/null 2>&1; then
         buildx_package="docker-buildx-plugin"
+    else
+        echo "No docker buildx package found in apt metadata" >&2
+        exit 1
     fi
 
-    if [[ -n "${buildx_package}" ]]; then
-        run_as_root env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-            docker.io \
-            "${buildx_package}" \
-            fuse-overlayfs
-    else
-        run_as_root env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-            docker.io \
-            fuse-overlayfs
-    fi
+    run_as_root env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+        docker.io \
+        "${buildx_package}" \
+        fuse-overlayfs \
+        "${python_venv_package}"
 }
 
 configure_docker_daemon() {
