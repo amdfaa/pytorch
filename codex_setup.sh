@@ -1,4 +1,124 @@
+#!/usr/bin/env bash
 set -ex
+
+run_as_root() {
+    if [[ "$(id -u)" == 0 ]]; then
+        "$@"
+    else
+        sudo "$@"
+    fi
+}
+
+install_docker_packages() {
+    if ! command -v apt-get >/dev/null; then
+        echo "Docker bootstrap currently supports Ubuntu agents with apt-get" >&2
+        exit 1
+    fi
+
+    run_as_root env DEBIAN_FRONTEND=noninteractive apt-get update
+
+    local buildx_package
+    buildx_package=""
+    if apt-cache show docker-buildx >/dev/null 2>&1; then
+        buildx_package="docker-buildx"
+    elif apt-cache show docker-buildx-plugin >/dev/null 2>&1; then
+        buildx_package="docker-buildx-plugin"
+    fi
+
+    if [[ -n "${buildx_package}" ]]; then
+        run_as_root env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            docker.io \
+            "${buildx_package}" \
+            fuse-overlayfs
+    else
+        run_as_root env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            docker.io \
+            fuse-overlayfs
+    fi
+}
+
+configure_docker_daemon() {
+    local daemon_config
+    daemon_config="$(mktemp)"
+    cat >"${daemon_config}" <<'JSON'
+{
+  "features": {
+    "buildkit": true
+  },
+  "storage-driver": "fuse-overlayfs"
+}
+JSON
+
+    run_as_root install -d -m 0755 /etc/docker
+    run_as_root install -m 0644 "${daemon_config}" /etc/docker/daemon.json
+    rm -f "${daemon_config}"
+
+    local agent_user
+    agent_user="${SUDO_USER:-${USER:-}}"
+    if [[ -n "${agent_user}" ]] && getent group docker >/dev/null; then
+        run_as_root usermod -aG docker "${agent_user}"
+    fi
+}
+
+docker_storage_driver() {
+    run_as_root docker info --format '{{.Driver}}' 2>/dev/null || true
+}
+
+stop_docker_daemon_without_systemd() {
+    if ! run_as_root docker info >/dev/null 2>&1; then
+        return
+    fi
+
+    run_as_root sh -c '
+if [ -f /var/run/docker.pid ]; then
+    kill "$(cat /var/run/docker.pid)" || true
+else
+    pkill -x dockerd || true
+fi
+'
+
+    for _ in {1..30}; do
+        if ! run_as_root docker info >/dev/null 2>&1; then
+            return
+        fi
+        sleep 1
+    done
+}
+
+start_docker_daemon() {
+    if command -v systemctl >/dev/null && \
+        run_as_root systemctl restart docker >/dev/null 2>&1; then
+        run_as_root systemctl enable docker >/dev/null 2>&1 || true
+    else
+        stop_docker_daemon_without_systemd
+        run_as_root sh -c '
+nohup dockerd --config-file=/etc/docker/daemon.json >/tmp/dockerd.log 2>&1 &
+echo $! >/tmp/dockerd.pid
+'
+    fi
+
+    for _ in {1..30}; do
+        if [[ "$(docker_storage_driver)" == "fuse-overlayfs" ]]; then
+            run_as_root docker buildx version
+            return
+        fi
+        sleep 1
+    done
+
+    echo "Docker daemon did not become ready with fuse-overlayfs storage" >&2
+    run_as_root docker info >&2 || true
+    if [[ -f /tmp/dockerd.log ]]; then
+        run_as_root tail -n 100 /tmp/dockerd.log >&2 || true
+    fi
+    exit 1
+}
+
+install_docker_packages
+configure_docker_daemon
+start_docker_daemon
+
+grep -qxF "export DOCKER_BUILDKIT=1" ~/.bashrc || \
+    echo "export DOCKER_BUILDKIT=1" >> ~/.bashrc
 uv venv
 source .venv/bin/activate
 uv pip install -r requirements.txt
